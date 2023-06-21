@@ -71,9 +71,6 @@ show_help() {
     printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
     printc green "  │ -l, --list                │  List all stored host from entry,               │"
     printc green "  │                           │  then choose to execute the ssh connection      │"
-    printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
-    printc green "  │ -t, --tag <TAGNAME>       │  Find all host that have tag <TAGNAME>,         │"
-    printc green "  │                           │  then choose to execute the ssh connection      │"
     printc green "  └───────────────────────────┴─────────────────────────────────────────────────┘"
 }
 
@@ -244,7 +241,8 @@ create_now_host() {
         # Password required validation
         if [ $type == "PASSWORD" ]; then
             while true; do
-                read -p "Server password: " password
+                read -s -p "Server password: " password
+                echo
                 if [[ -n "$password" ]]; then
                     break
                 else
@@ -287,14 +285,14 @@ create_now_host() {
             jq --argjson json "$json_object" '. += [$json]' "$term_ssh_config_file" >"$term_ssh_config_file.tmp" && mv "$term_ssh_config_file.tmp" "$term_ssh_config_file"
         fi
 
-        cat $term_ssh_config_file | jq
+        printc green "Host '$alias' was successfully added!"
     else
         die "Invalid type! Type must be 'key' or 'password'"
     fi
 }
 
 # List all host
-list_host() {
+get_selected_host() {
     # Check file json first
     check_json_config
 
@@ -308,6 +306,9 @@ list_host() {
     # Declare an array to store the keys for use with fzf
     local keys=()
 
+    # Add header
+    keys+=("#,ALIAS,ADDRESS,LABEL,TAG")
+
     # Iterate over the entries and process them
     for index in "${!entries[@]}"; do
         local entry="${entries[$index]}"
@@ -316,10 +317,12 @@ list_host() {
         local alias=$(jq -r '.alias' <<<"$entry")
         local address=$(jq -r '.address' <<<"$entry")
         local label=$(jq -r '.label' <<<"$entry")
+        local label=$(jq -r '.label' <<<"$entry")
+        local tag=$(jq -r '.tag' <<<"$entry")
         address=$(str_decrypt "$address")
 
         # Create the display entry for fzf
-        local display_entry="$((index + 1)) - $alias [$address] \"$label\""
+        local display_entry="$((index + 1)),$alias,$address,$label,$tag"
 
         # Store the display entry in the keys array
         keys+=("$display_entry")
@@ -327,30 +330,109 @@ list_host() {
     done
 
     # Use fzf to select an entry by its key
-    clear
-    local selected_key=$(printf '%s\n' "${keys[@]}" | fzf --inline-info --reverse --prompt="Please choose the host to proceed: ")
+    local selected_key=$(printf '%s\n' "${keys[@]}" | column -t -s ',' | fzf --no-select-1 --ansi --inline-info --reverse --prompt="Please select the host to proceed: ")
+
+    # Check if selected_key not empty
+    if [ -z "$selected_key" ]; then
+        die "Selection canceled!"
+    fi
 
     # Extract the index from the selected key
     local selected_index=${selected_key%% *}
 
-    # Retrieve the corresponding entry from the entries array
-    local selected_entry="${entries[$selected_index - 1]}"
+    # Prevent select header
+    if [ "$selected_index" == "#" ]; then
+        get_selected_host
+    else
+        # Retrieve the corresponding entry from the entries array
+        local selected_entry="${entries[$selected_index - 1]}"
 
-    # Extract the fields from the selected entry
-    local c_alias=$(jq -r '.alias' <<<"$selected_entry")
-    local c_password=$(jq -r '.password' <<<"$selected_entry")
-    local c_key=$(jq -r '.ssh_key' <<<"$selected_entry")
-
-    # Connect to SSH using the private key file
-    if [[ -n "$c_key" ]]; then
-        connect_host "$c_alias"
-        return 0
+        # Extract the fields from the selected entry
+        local c_alias=$(jq -r '.alias' <<<"$selected_entry")
+        echo "$c_alias"
     fi
+}
 
-    # Connect to SSH using password authentication
-    if [[ -n "$c_password" ]]; then
-        connect_host "$c_alias"
-        return 0
+# Delete host
+delete_host() {
+    # Get alias
+    local alias=$(get_selected_host)
+
+    # Delete by alias
+    if [ -n "$alias" ]; then
+        local json_entry=$(find_by_key "alias" "$alias")
+        local c_alias=$(jq -r '.alias' <<<"$json_entry")
+        local c_label=$(jq -r '.label' <<<"$json_entry")
+        local c_address=$(jq -r '.address' <<<"$json_entry")
+        c_address=$(str_decrypt "$c_address")
+
+        read -p "Do you want to delete host: $c_alias [$c_address] \"$c_label\"? (no): " answer
+        case "$answer" in
+        [Yy] | [Yy][Ee][Ss] | [Yy][Aa][Pp])
+            jq --arg ALIAS "$alias" 'flatten | map(select(type == "object")) | map(select(.alias != $ALIAS))' "$term_ssh_config_file" >"$term_ssh_config_file.tmp" && mv "$term_ssh_config_file.tmp" "$term_ssh_config_file"
+            printc green "Host '$alias' has been deleted!"
+            return 0
+            ;;
+        *)
+            delete_host
+            ;;
+        esac
+
+    fi
+}
+
+# Edit host
+edit_host() {
+    # Get alias
+    local alias=$(get_selected_host)
+
+    # Delete by alias
+    if [ -n "$alias" ]; then
+        local json_entry=$(find_by_key "alias" "$alias")
+        local alias=$(jq -r '.alias' <<<"$json_entry")
+        local label=$(jq -r '.label' <<<"$json_entry")
+        local tag=$(jq -r '.tag' <<<"$json_entry")
+        local address=$(jq -r '.address' <<<"$json_entry")
+        local port=$(jq -r '.port' <<<"$json_entry")
+        local username=$(jq -r '.username' <<<"$json_entry")
+        local password=$(jq -r '.password' <<<"$json_entry")
+        local key=$(jq -r '.ssh_key' <<<"$json_entry")
+        local startup=$(jq -r '.startup_cmd' <<<"$json_entry")
+
+        # Decrypt
+        address=$(str_decrypt "$address")
+        port=$(str_decrypt "$port")
+        username=$(str_decrypt "$username")
+        address=$(str_decrypt "$address")
+        if [[ -n "$password" ]]; then
+            password=$(str_decrypt $password)
+        fi
+        if [[ -n "$key" ]]; then
+            key=$(str_decrypt $key)
+        fi
+
+        read -p "Server address ($address): " c_address
+        read -p "Server port ($port): " c_port
+        read -p "Server username ($username): " c_username
+        read -s -p "Server password (*********): " c_password
+        echo
+        read -p "Server startup command ($startup): " c_startup
+        read -p "Alias for this server ($alias): " c_alias
+        read -p "Label description for this server ($alias): " c_label
+        read -p "Tag for this server ($tag): " c_tag
+
+    fi
+}
+
+# Connect host to selected alias
+connect_selected_host() {
+    # Get alias
+    local alias=$(get_selected_host)
+
+    # Connect
+    if [ -n "$alias" ]; then
+        clear
+        connect_host "$alias"
     fi
 }
 
@@ -399,7 +481,7 @@ connect_host() {
         fi
 
         # Execute ssh by method
-        # clear
+        printc yellow "Connecting to host $c_alias..."
         if [ $method == "KEY" ]; then
             c_key=$(str_decrypt "$c_key")
             ssh -o StrictHostKeyChecking=no -p "$c_port" -i "$c_key" "$c_username@$c_address" -t "$c_startup"
@@ -409,7 +491,6 @@ connect_host() {
         else
             die "unsupported connection method!"
         fi
-
     fi
 
 }
@@ -429,15 +510,22 @@ case "$1" in
         create_now_host $2
     fi
     ;;
---list | -l)
-    list_host
-    ;;
 --connect | -c)
     if [ -z "$2" ]; then
         die "Error: No alias provided."
     else
+        clear
         connect_host $2
     fi
+    ;;
+--delete | -d)
+    delete_host
+    ;;
+--edit | -e)
+    echo "Edit"
+    ;;
+--list | -l)
+    connect_selected_host
     ;;
 *)
     printc yellow "Invalid option! Use -h or --help for usage instructions."

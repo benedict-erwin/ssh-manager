@@ -389,6 +389,7 @@ edit_host() {
     # Delete by alias
     if [ -n "$alias" ]; then
         local json_entry=$(find_by_key "alias" "$alias")
+        echo $json_entry
         local alias=$(jq -r '.alias' <<<"$json_entry")
         local label=$(jq -r '.label' <<<"$json_entry")
         local tag=$(jq -r '.tag' <<<"$json_entry")
@@ -403,7 +404,6 @@ edit_host() {
         address=$(str_decrypt "$address")
         port=$(str_decrypt "$port")
         username=$(str_decrypt "$username")
-        address=$(str_decrypt "$address")
         if [[ -n "$password" ]]; then
             password=$(str_decrypt $password)
         fi
@@ -483,10 +483,16 @@ connect_host() {
         # Execute ssh by method
         printc yellow "Connecting to host $c_alias..."
         if [ $method == "KEY" ]; then
+            # Decrypt key
             c_key=$(str_decrypt "$c_key")
+
+            # Execute ssh
             ssh -o StrictHostKeyChecking=no -p "$c_port" -i "$c_key" "$c_username@$c_address" -t "$c_startup"
         elif [ $method == "PASSWORD" ]; then
+            # Decrypt password
             c_password=$(str_decrypt "$c_password")
+
+            # Execute ssh
             sshpass -p "$c_password" ssh -o StrictHostKeyChecking=no -p "$c_port" "$c_username@$c_address" -t "$c_startup"
         else
             die "unsupported connection method!"
@@ -522,7 +528,7 @@ case "$1" in
     delete_host
     ;;
 --edit | -e)
-    echo "Edit"
+    edit_host
     ;;
 --list | -l)
     connect_selected_host

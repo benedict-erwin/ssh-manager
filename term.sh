@@ -92,8 +92,8 @@ fi
 # Read config file
 . $term_config_file
 
+# Check json config file
 check_json_config() {
-    # Init json
     if [ ! -f $term_ssh_config_file ]; then
         die "Please add host first! Use -h or --help for usage instructions."
     fi
@@ -102,7 +102,8 @@ check_json_config() {
 # Encrypt text with aes-256-cbc
 str_encrypt() {
     local plaintext="$1"
-    local encrypted=$(echo -n "$plaintext" | openssl enc -aes-256-cbc -a -A -salt -pbkdf2 -k "$ENCRYPTION_KEY" | base64)
+    plaintext=$(echo "$plaintext" | xargs)
+    local encrypted=$(echo -n "$plaintext" | openssl enc -aes-256-cbc -a -A -salt -pbkdf2 -k "$ENCRYPTION_KEY" | base64 -w 0)
     echo "$encrypted"
 }
 
@@ -160,6 +161,9 @@ check_json_key() {
     local json_key="$1"
     local json_value="$2"
     local word=$(echo "$json_value" | wc -w)
+    if [ ! -f $term_ssh_config_file ]; then
+        return 0
+    fi
     if [ "$json_key" == "alias" ]; then
         if [ "$word" != 1 ]; then
             printc yellow "Alias should only contain one word!"
@@ -189,7 +193,7 @@ find_by_key() {
 }
 
 # Create new host
-create_now_host() {
+create_new_host() {
     local type="$1"
     type=${type^^}
     if [[ $type == "KEY" || $type == "PASSWORD" ]]; then
@@ -385,11 +389,11 @@ delete_host() {
 edit_host() {
     # Get alias
     local alias=$(get_selected_host)
+    local method=""
 
-    # Delete by alias
+    # Edit by alias
     if [ -n "$alias" ]; then
         local json_entry=$(find_by_key "alias" "$alias")
-        echo $json_entry
         local alias=$(jq -r '.alias' <<<"$json_entry")
         local label=$(jq -r '.label' <<<"$json_entry")
         local tag=$(jq -r '.tag' <<<"$json_entry")
@@ -406,21 +410,100 @@ edit_host() {
         username=$(str_decrypt "$username")
         if [[ -n "$password" ]]; then
             password=$(str_decrypt $password)
+            method="PASSWORD"
         fi
         if [[ -n "$key" ]]; then
             key=$(str_decrypt $key)
+            method="KEY"
         fi
 
         read -p "Server address ($address): " c_address
         read -p "Server port ($port): " c_port
         read -p "Server username ($username): " c_username
-        read -s -p "Server password (*********): " c_password
+        if [ $method == "PASSWORD" ]; then
+            read -s -p "Server password (*********): " c_password
+        else
+            echo "Old Server key: ($key)"
+            read -p "New Server key, full path .pem file: " c_key
+        fi
         echo
         read -p "Server startup command ($startup): " c_startup
         read -p "Alias for this server ($alias): " c_alias
         read -p "Label description for this server ($alias): " c_label
         read -p "Tag for this server ($tag): " c_tag
 
+        # Asign new value
+        c_alias=${c_alias:-$alias}
+        c_label=${c_label:-$label}
+        c_tag=${c_tag:-$tag}
+        c_startupcmd=${c_startupcmd:-$startupcmd}
+
+        if [[ -n "$c_address" ]]; then
+            c_address=$(str_encrypt $c_address)
+        else
+            if [[ -n "$c_address" ]]; then
+                c_address=$(str_encrypt $address)
+            fi
+        fi
+
+        if [[ -n "$c_port" ]]; then
+            c_port=$(str_encrypt $c_port)
+        else
+            if [[ -n "$c_port" ]]; then
+                c_port=$(str_encrypt $port)
+            fi
+        fi
+
+        if [[ -n "$c_username" ]]; then
+            c_username=$(str_encrypt $c_username)
+        else
+            if [[ -n "$c_username" ]]; then
+                c_username=$(str_encrypt $username)
+            fi
+        fi
+
+        if [[ -n "$c_password" ]]; then
+            c_password=$(str_encrypt $c_password)
+        else
+            if [[ -n "$c_password" ]]; then
+                c_password=$(str_encrypt $password)
+            fi
+        fi
+
+        if [[ -n "$c_key" ]]; then
+            c_key=$(str_encrypt $c_key)
+        else
+            if [[ -n "$key" ]]; then
+                c_key=$(str_encrypt $key)
+            fi
+        fi
+
+        # update json
+        jq --arg alias "$alias" \
+            --arg c_alias "$c_alias" \
+            --arg c_label "$c_label" \
+            --arg c_tag "$c_tag" \
+            --arg c_address "$c_address" \
+            --arg c_port "$c_port" \
+            --arg c_username "$c_username" \
+            --arg c_password "$c_password" \
+            --arg c_key "$c_key" \
+            --arg c_startupcmd "$c_startupcmd" \
+            'map(if .alias == $alias 
+                then 
+                    .alias = $c_alias |
+                    .label = $c_label |
+                    .tag = $c_tag |
+                    .address = $c_address |
+                    .port = $c_port |
+                    .username = $c_username |
+                    .ssh_key = $c_key |
+                    .startup_cmd = $c_startupcmd
+                else . end)' "$term_ssh_config_file" >"$term_ssh_config_file.tmp"
+
+        # Overwrite the file
+        mv "$term_ssh_config_file.tmp" "$term_ssh_config_file"
+        printc green "Host '$alias' was successfully updated!"
     fi
 }
 
@@ -513,7 +596,7 @@ case "$1" in
     if [ -z "$2" ]; then
         die "Error: No type provided."
     else
-        create_now_host $2
+        create_new_host $2
     fi
     ;;
 --connect | -c)

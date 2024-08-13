@@ -77,6 +77,15 @@ show_help() {
 # Check dependencies first
 check_depend "jq" "fzf" "openssl" "base64" "wc" "sshpass" || true
 
+# Generate encryption key to use in config
+gen_encrypt_key() {
+    local plaintext="$1"
+    local salt="mempertanggungjawabkannya"
+    plaintext=$(echo "$plaintext" | xargs)
+    local encryptkey=$(echo -n "$plaintext" | openssl enc -aes-256-cbc -a -A -nosalt -pbkdf2 -k "$salt" -iv "00000000000000000000000000000000" | base64 -w 0 | tr '/+' '_-')
+    echo "$encryptkey"
+}
+
 # Default Configuration
 term_config_path=$HOME/.config/term-sshman
 term_config_file="$term_config_path/term.conf"
@@ -85,8 +94,18 @@ if [ ! -d $term_config_path ]; then
     mkdir $term_config_path
 fi
 if [ ! -f $term_config_file ]; then
+    while true; do
+        printc yellow "Please enter encryption key to secure your data"
+        read -s -p "Encryption Key: " enckey
+        if [[ -n "$enckey" ]]; then
+            break
+        else
+            echo 
+        fi
+    done
+    enckey=$(gen_encrypt_key "$enckey")
     touch $term_config_file
-    echo "ENCRYPTION_KEY=" >>$term_config_file
+    echo "ENCRYPTION_KEY=$enckey" >>$term_config_file
 fi
 
 # Read config file
@@ -110,7 +129,7 @@ str_encrypt() {
 # Decrypt aes-256-cbc text
 str_decrypt() {
     local ciphertext="$1"
-    local decrypted=$(echo -n "$ciphertext" | base64 -d | openssl enc -d -aes-256-cbc -a -A -salt -pbkdf2 -k "$ENCRYPTION_KEY")
+    local decrypted=$(echo -n "$ciphertext" | base64 -d | openssl enc -d -aes-256-cbc -a -A -salt -pbkdf2 -k "$ENCRYPTION_KEY" 2>/dev/null)
     echo "$decrypted"
 }
 
@@ -301,11 +320,10 @@ get_selected_host() {
     check_json_config
 
     # Read the JSON into a bash array
-    local json_file="$term_ssh_config_file"
     local entries=()
     while IFS= read -r line; do
         entries+=("$line")
-    done < <(jq -c '.[]' "$json_file")
+    done < <(jq -c '.[]' "$term_ssh_config_file")
 
     # Declare an array to store the keys for use with fzf
     local keys=()
@@ -441,7 +459,7 @@ edit_host() {
         if [[ -n "$c_address" ]]; then
             c_address=$(str_encrypt $c_address)
         else
-            if [[ -n "$c_address" ]]; then
+            if [[ -n "$address" ]]; then
                 c_address=$(str_encrypt $address)
             fi
         fi
@@ -449,7 +467,7 @@ edit_host() {
         if [[ -n "$c_port" ]]; then
             c_port=$(str_encrypt $c_port)
         else
-            if [[ -n "$c_port" ]]; then
+            if [[ -n "$port" ]]; then
                 c_port=$(str_encrypt $port)
             fi
         fi
@@ -457,7 +475,7 @@ edit_host() {
         if [[ -n "$c_username" ]]; then
             c_username=$(str_encrypt $c_username)
         else
-            if [[ -n "$c_username" ]]; then
+            if [[ -n "$username" ]]; then
                 c_username=$(str_encrypt $username)
             fi
         fi
@@ -465,7 +483,7 @@ edit_host() {
         if [[ -n "$c_password" ]]; then
             c_password=$(str_encrypt $c_password)
         else
-            if [[ -n "$c_password" ]]; then
+            if [[ -n "$password" ]]; then
                 c_password=$(str_encrypt $password)
             fi
         fi
@@ -584,8 +602,13 @@ connect_host() {
 
 }
 
-# BY TAG
-# jq --arg key "tag" --arg value "asd"  'map(select(.[$key] | contains($value))) | .[]' "/home/benedict/.config/term-sshman/ssh-config.json"
+# Check encryption key first
+check=$(jq first "$term_ssh_config_file" | jq -r '.address')
+check=$(str_decrypt $check)
+if [[ -z "$check" ]]; then
+    die "ENCRYPTION_KEY is invalid!"
+fi
+
 
 # MAIN
 case "$1" in

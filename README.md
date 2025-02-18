@@ -81,7 +81,7 @@ sudo apt install jq fzf openssl sshpass
 
 1. **Zero Runtime Overhead**: Pure Bash implementation  
 2. **Portable**: Single-file architecture  
-3. **Auditable**: <200 line core logic  
+3. **Auditable**: <800 line core logic  
 4. **Extensible**: Easy JSON schema modification  
 
 ## Roadmap

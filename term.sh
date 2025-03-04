@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version number
-version="1.0.1"
+version="1.0.2"
 
 # Dependencies check
 check_depend() {
@@ -57,25 +57,25 @@ show_help() {
     echo
     printc green "Usage: term.sh [OPTIONS]"
     echo
-    printc green "Options:"
-    printc green "  ┌───────────────────────────┬─────────────────────────────────────────────────┐"
-    printc green "  │ -h, --help                │  Show this help menu                            │"
-    printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
-    printc green "  │ -a, --add <TYPE>          │  Add/create a new ssh host <key|password>       │"
-    printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
-    printc green "  │ -c, --connect <ALIAS>     │  Connect to the server with alias <ALIAS>       │"
-    printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
-    printc green "  │ -d, --delete              │  Delete selected host from entry                │"
-    printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
-    printc green "  │ -e, --edit                │  Edit an existing host from entry               │"
-    printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
-    printc green "  │ -l, --list                │  List all stored host from entry,               │"
-    printc green "  │                           │  then choose to execute the ssh connection      │"
-    printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
-    printc green "  │ -U, --update              │  Update the script                              │"
-    printc green "  └───────────────────────────┴─────────────────────────────────────────────────┘"
-    printc green "  │ -v, --version             │  Show the script version                        │"
-    printc green "  └───────────────────────────┴─────────────────────────────────────────────────┘"
+    printc white "Options:"
+    printc white "  ┌───────────────────────────┬─────────────────────────────────────────────────┐"
+    printc white "  │ -h, --help                │  Show this help menu                            │"
+    printc white "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
+    printc white "  │ -a, --add <TYPE>          │  Add/create a new ssh host <key|password>       │"
+    printc white "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
+    printc white "  │ -c, --connect <ALIAS>     │  Connect to the server with alias <ALIAS>       │"
+    printc white "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
+    printc white "  │ -d, --delete              │  Delete selected host from entry                │"
+    printc white "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
+    printc white "  │ -e, --edit                │  Edit an existing host from entry               │"
+    printc white "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
+    printc white "  │ -l, --list                │  List all stored host from entry,               │"
+    printc white "  │                           │  then choose to execute the ssh connection      │"
+    printc white "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
+    printc white "  │ -U, --update              │  Update the script                              │"
+    printc white "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
+    printc white "  │ -v, --version             │  Show the script version                        │"
+    printc white "  └───────────────────────────┴─────────────────────────────────────────────────┘"
 }
 
 # Check dependencies first
@@ -89,31 +89,6 @@ gen_encrypt_key() {
     local encryptkey=$(echo -n "$plaintext" | openssl enc -aes-256-cbc -a -A -nosalt -pbkdf2 -k "$salt" -iv "00000000000000000000000000000000" | base64 -w 0 | tr '/+' '_-')
     echo "$encryptkey"
 }
-
-# Default Configuration
-term_config_path=$HOME/.config/term-sshman
-term_config_file="$term_config_path/term.conf"
-term_ssh_config_file="$term_config_path/ssh-config.json"
-if [ ! -d $term_config_path ]; then
-    mkdir $term_config_path
-fi
-if [ ! -f $term_config_file ]; then
-    while true; do
-        printc yellow "Please enter encryption key to secure your data"
-        read -s -p "Encryption Key: " enckey
-        if [[ -n "$enckey" ]]; then
-            break
-        else
-            echo
-        fi
-    done
-    enckey=$(gen_encrypt_key "$enckey")
-    touch $term_config_file
-    echo "ENCRYPTION_KEY=$enckey" >>$term_config_file
-fi
-
-# Read config file
-. $term_config_file
 
 # Check json config file
 check_json_config() {
@@ -643,12 +618,51 @@ script_version() {
     printc green "TERM.SH v$version"
 }
 
-# Check encryption key first
-check=$(jq first "$term_ssh_config_file" | jq -r '.address')
-check=$(str_decrypt $check)
-if [[ -z "$check" ]]; then
-    die "ENCRYPTION_KEY is invalid!"
+# Validate Encryption Key
+validate_encryption() {
+    # Check encryption key first
+    if [ -f "$term_ssh_config_file" ]; then
+        check=$(jq '.[0]' "$term_ssh_config_file" 2>/dev/null | jq -r '.address' 2>/dev/null)
+        if [[ -n "$check" ]]; then
+            check=$(str_decrypt "$check")
+            if [[ -z "$check" ]]; then
+                die "ENCRYPTION_KEY is invalid!"
+            fi
+        fi
+    fi
+}
+
+# Using current user home directory
+if [ -n "$SUDO_USER" ]; then
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+else
+    USER_HOME=$HOME
 fi
+
+# Default Configuration
+term_config_path=$USER_HOME/.config/term-sshman
+term_config_file="$term_config_path/term.conf"
+term_ssh_config_file="$term_config_path/ssh-config.json"
+if [ ! -d $term_config_path ]; then
+    mkdir $term_config_path
+fi
+if [ ! -f $term_config_file ]; then
+    while true; do
+        printc yellow "Please enter encryption key to secure your data"
+        read -s -p "Encryption Key: " enckey
+        if [[ -n "$enckey" ]]; then
+            break
+        else
+            echo
+        fi
+    done
+    enckey=$(gen_encrypt_key "$enckey")
+    touch $term_config_file
+    echo "ENCRYPTION_KEY=$enckey" >>$term_config_file
+fi
+
+# Read config file
+. $term_config_file
 
 # MAIN
 case "$1" in
@@ -659,6 +673,7 @@ case "$1" in
     if [ -z "$2" ]; then
         die "Error: No type provided."
     else
+        validate_encryption
         create_new_host $2
     fi
     ;;
@@ -666,25 +681,29 @@ case "$1" in
     if [ -z "$2" ]; then
         die "Error: No alias provided."
     else
+        validate_encryption
         clear
         connect_host $2
     fi
     ;;
 --delete | -d)
+    validate_encryption
     delete_host
     ;;
 --edit | -e)
+    validate_encryption
     edit_host
     ;;
 --list | -l)
+    validate_encryption
     connect_selected_host
     ;;
 --update | -U)
     update_script
-    ;;    
+    ;;
 --version | -v)
     script_version
-    ;;    
+    ;;
 *)
     printc yellow "Invalid option! Use -h or --help for usage instructions."
     ;;

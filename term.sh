@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Version number
-version="1.0.0"
+version="1.0.1"
 
 # Dependencies check
 check_depend() {
@@ -61,6 +61,8 @@ show_help() {
     printc green "  ┌───────────────────────────┬─────────────────────────────────────────────────┐"
     printc green "  │ -h, --help                │  Show this help menu                            │"
     printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
+    printc green "  │ -U, --update              │  Update the script                              │"
+    printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
     printc green "  │ -a, --add <TYPE>          │  Add/create a new ssh host <key|password>       │"
     printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
     printc green "  │ -c, --connect <ALIAS>     │  Connect to the server with alias <ALIAS>       │"
@@ -100,7 +102,7 @@ if [ ! -f $term_config_file ]; then
         if [[ -n "$enckey" ]]; then
             break
         else
-            echo 
+            echo
         fi
     done
     enckey=$(gen_encrypt_key "$enckey")
@@ -587,6 +589,20 @@ connect_host() {
             # Decrypt key
             c_key=$(str_decrypt "$c_key")
 
+            # Get key fingerprint
+            KEY_FINGERPRINT=$(ssh-keygen -lf "$c_key" | awk '{print $2}')
+
+            # Add key if not added yet
+            if ssh-add -l | grep -q "$KEY_FINGERPRINT"; then
+                echo "Key already added!"
+            else
+                # Exec ssh agent
+                eval "$(ssh-agent -s)"
+
+                # Add key
+                ssh-add "$c_key"
+            fi
+
             # Execute ssh
             ssh -o StrictHostKeyChecking=no -p "$c_port" -i "$c_key" "$c_username@$c_address" -t "$c_startup"
         elif [ $method == "PASSWORD" ]; then
@@ -599,7 +615,25 @@ connect_host() {
             die "unsupported connection method!"
         fi
     fi
+}
 
+# Update script
+# Adapted from: pystardust/ani-cli
+# [source] https://github.com/pystardust/ani-cli/blob/df3e0a9bbc89febcceef75bda04ae941e08bca5a/ani-cli#L103
+update_script() {
+    agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
+    update="$(curl -s -A "$agent" "https://raw.githubusercontent.com/benedict-erwin/ssh-manager/master/term.sh")" || die "Connection error"
+    update="$(printf '%s\n' "$update" | diff -u "$0" -)"
+    if [ -z "$update" ]; then
+        printf "Script is up to date :)\n"
+    else
+        if printf '%s\n' "$update" | patch "$0" -; then
+            printf "Script has been updated\n"
+        else
+            die "Can't update for some reason!"
+        fi
+    fi
+    exit 0
 }
 
 # Check encryption key first
@@ -609,11 +643,13 @@ if [[ -z "$check" ]]; then
     die "ENCRYPTION_KEY is invalid!"
 fi
 
-
 # MAIN
 case "$1" in
 --help | -h)
     show_help
+    ;;
+--update | -U)
+    update_script
     ;;
 --add | -a)
     if [ -z "$2" ]; then

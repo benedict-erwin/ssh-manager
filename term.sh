@@ -61,8 +61,6 @@ show_help() {
     printc green "  ┌───────────────────────────┬─────────────────────────────────────────────────┐"
     printc green "  │ -h, --help                │  Show this help menu                            │"
     printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
-    printc green "  │ -U, --update              │  Update the script                              │"
-    printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
     printc green "  │ -a, --add <TYPE>          │  Add/create a new ssh host <key|password>       │"
     printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
     printc green "  │ -c, --connect <ALIAS>     │  Connect to the server with alias <ALIAS>       │"
@@ -73,6 +71,10 @@ show_help() {
     printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
     printc green "  │ -l, --list                │  List all stored host from entry,               │"
     printc green "  │                           │  then choose to execute the ssh connection      │"
+    printc green "  ├───────────────────────────┼─────────────────────────────────────────────────┤"
+    printc green "  │ -U, --update              │  Update the script                              │"
+    printc green "  └───────────────────────────┴─────────────────────────────────────────────────┘"
+    printc green "  │ -v, --version             │  Show the script version                        │"
     printc green "  └───────────────────────────┴─────────────────────────────────────────────────┘"
 }
 
@@ -636,6 +638,11 @@ update_script() {
     exit 0
 }
 
+# Print script version
+script_version() {
+    printc green "TERM.SH v$version"
+}
+
 # Check encryption key first
 check=$(jq first "$term_ssh_config_file" | jq -r '.address')
 check=$(str_decrypt $check)
@@ -647,9 +654,6 @@ fi
 case "$1" in
 --help | -h)
     show_help
-    ;;
---update | -U)
-    update_script
     ;;
 --add | -a)
     if [ -z "$2" ]; then
@@ -675,6 +679,12 @@ case "$1" in
 --list | -l)
     connect_selected_host
     ;;
+--update | -U)
+    update_script
+    ;;    
+--version | -v)
+    script_version
+    ;;    
 *)
     printc yellow "Invalid option! Use -h or --help for usage instructions."
     ;;

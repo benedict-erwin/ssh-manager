@@ -69,12 +69,17 @@
 ## Installation
 
 ```bash
+# Clone the repository
 git clone https://github.com/benedict-erwin/ssh-manager.git
-cd term.sh
-chmod +x term.sh
 
 # Install dependencies (Debian/Ubuntu)
 sudo apt install jq fzf openssl sshpass
+
+# Move to your desired bin directory, for this sample is using /usr/local/bin
+sudo cp -v term.sh /usr/local/bin/term
+
+# Test your installation
+term --version
 ```
 
 ## Why Choose Term.sh?
